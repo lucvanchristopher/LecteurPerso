@@ -580,27 +580,13 @@ async function playTrack(idx) {
   // Load audio
   let url = track.blobUrl;
   if (!url && track.id && accessToken) {
-    url = await fetchAsBlob(track.id);
+    // Stream direct depuis Drive (supporte le seek / avance rapide)
+    url = `https://www.googleapis.com/drive/v3/files/${track.id}?alt=media&access_token=${encodeURIComponent(accessToken)}`;
     track.blobUrl = url;
   }
   if (!url) { toast('Impossible de lire ce fichier', true); return; }
   audio.src = url;
   audio.play().catch(e => toast('Erreur lecture : ' + e.message, true));
-}
-
-async function fetchAsBlob(fileId) {
-  try {
-    const r = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: { Authorization: 'Bearer ' + accessToken } }
-    );
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const blob = await r.blob();
-    return URL.createObjectURL(blob);
-  } catch(e) {
-    toast('Erreur téléchargement : ' + e.message, true);
-    return null;
-  }
 }
 
 // ─── GOOGLE DRIVE API ──────────────────────────────────────────────────────
