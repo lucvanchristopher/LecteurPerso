@@ -461,7 +461,7 @@
 
 </div>
 
-<audio id="audioEl" preload="none"></audio>
+<audio id="audioEl" preload="auto"></audio>
 
 <script>
 // ─── CONFIG ────────────────────────────────────────────────────────────────
@@ -530,8 +530,12 @@ function fmt(s) {
 }
 function seekTo(e) {
   const rect = document.getElementById('progressTrack').getBoundingClientRect();
-  const pct = (e.clientX - rect.left) / rect.width;
-  if (audio.duration) audio.currentTime = pct * audio.duration;
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  if (audio.duration && isFinite(audio.duration) && audio.duration > 0) {
+    audio.currentTime = pct * audio.duration;
+  } else {
+    toast('Attendez que la piste soit chargée…');
+  }
 }
 function setVolume(v) { audio.volume = v; }
 function togglePlay() {
@@ -584,11 +588,18 @@ async function playTrack(idx) {
     track.blobUrl = url;
   }
   if (!url) { toast('Impossible de lire ce fichier', true); return; }
-  audio.src = url;
+  audio.pause();
+  audio.removeAttribute('src');
+  audio.innerHTML = '';
+  const srcEl = document.createElement('source');
+  srcEl.src  = url;
+  srcEl.type = 'audio/mpeg';
+  audio.appendChild(srcEl);
   audio.load();
-  try {
-    await audio.play();
-  } catch(e) { toast('Erreur lecture : ' + e.message, true); }
+  audio.oncanplay = () => {
+    audio.play().catch(e => toast('Erreur lecture : ' + e.message, true));
+    audio.oncanplay = null;
+  };
 }
 
 async function fetchAsBlob(fileId) {
