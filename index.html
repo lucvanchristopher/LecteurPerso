@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drive Player</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0d0f14;
+    --surface:  #151820;
+    --border:   #252a38;
+    --accent:   #e8a735;
+    --accent2:  #c47f1a;
+    --text:     #d4cfc8;
+    --muted:    #5a5e6e;
+    --active:   #1e2335;
+    --bar-h:    3px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+    overflow-x: hidden;
+  }
+
+  /* ── GRAIN overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── CONFIG MODAL ── */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.75);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    width: min(480px, 95vw);
+  }
+  .modal h2 { font-family: 'Playfair Display', serif; color: var(--accent); margin-bottom: 1rem; font-size: 1.4rem; }
+  .modal p  { font-size: .78rem; color: var(--muted); line-height: 1.6; margin-bottom: 1.2rem; }
+  .modal label { display: block; font-size: .72rem; color: var(--muted); margin-bottom: .3rem; }
+  .modal input {
+    width: 100%; background: var(--active);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: .5rem .75rem; color: var(--text);
+    font-family: 'DM Mono', monospace; font-size: .78rem;
+    margin-bottom: 1rem;
+  }
+  .modal input:focus { outline: 1px solid var(--accent); }
+  .modal-btn {
+    background: var(--accent); color: #0d0f14;
+    border: none; border-radius: 6px;
+    padding: .6rem 1.4rem; font-family: 'DM Mono', monospace;
+    font-weight: 500; font-size: .8rem;
+    cursor: pointer; transition: background .2s;
+  }
+  .modal-btn:hover { background: var(--accent2); }
+  .modal .link { color: var(--accent); text-decoration: none; }
+  .modal .link:hover { text-decoration: underline; }
+
+  /* ── HEADER ── */
+  header {
+    position: relative; z-index: 1;
+    width: min(680px, 100%);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--accent); letter-spacing: .02em; }
+  .logo span { color: var(--muted); font-size: .75rem; display: block; font-family: 'DM Mono', monospace; }
+
+  .auth-btn {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 6px; padding: .45rem 1rem;
+    font-family: 'DM Mono', monospace; font-size: .75rem;
+    cursor: pointer; transition: all .2s;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .auth-btn:hover { background: var(--accent); color: #0d0f14; }
+  .auth-btn.connected { border-color: #4caf50; color: #4caf50; }
+  .auth-btn.connected:hover { background: #4caf50; color: #0d0f14; }
+
+  /* ── MAIN LAYOUT ── */
+  .app {
+    position: relative; z-index: 1;
+    width: min(680px, 100%);
+    display: flex; flex-direction: column; gap: 1.2rem;
+  }
+
+  /* ── PLAYER CARD ── */
+  .player-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.8rem;
+  }
+
+  .now-playing {
+    display: flex; align-items: center; gap: 1.2rem;
+    margin-bottom: 1.6rem;
+  }
+  .album-art {
+    width: 64px; height: 64px; border-radius: 8px;
+    background: var(--active);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    position: relative; overflow: hidden;
+  }
+  .album-art svg { opacity: .4; }
+  .album-art .vinyl {
+    position: absolute; width: 100%; height: 100%;
+    border-radius: 50%; border: 2px solid rgba(232,167,53,.2);
+    animation: spin 4s linear infinite paused;
+  }
+  .album-art.playing .vinyl { animation-play-state: running; }
+  .album-art::after {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--border);
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .track-info { min-width: 0; flex: 1; }
+  .track-title {
+    font-size: .95rem; font-weight: 500;
+    color: var(--text); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: .2rem;
+  }
+  .track-meta { font-size: .7rem; color: var(--muted); }
+
+  /* Progress */
+  .progress-wrap { margin-bottom: 1.2rem; }
+  .progress-bar-track {
+    width: 100%; height: var(--bar-h);
+    background: var(--border);
+    border-radius: 9999px; cursor: pointer;
+    position: relative; margin-bottom: .5rem;
+  }
+  .progress-bar-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 9999px; width: 0%;
+    transition: width .2s linear;
+    position: relative;
+  }
+  .progress-bar-fill::after {
+    content: '';
+    position: absolute; right: -4px; top: 50%;
+    transform: translateY(-50%);
+    width: 9px; height: 9px;
+    border-radius: 50%; background: var(--accent);
+    opacity: 0; transition: opacity .15s;
+  }
+  .progress-bar-track:hover .progress-bar-fill::after { opacity: 1; }
+  .time-labels { display: flex; justify-content: space-between; font-size: .65rem; color: var(--muted); }
+
+  /* Controls */
+  .controls { display: flex; align-items: center; justify-content: center; gap: 1.5rem; }
+  .ctrl-btn {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: .3rem; border-radius: 6px;
+    transition: color .15s; display: flex; align-items: center;
+  }
+  .ctrl-btn:hover { color: var(--text); }
+  .ctrl-btn.play-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--accent); color: #0d0f14;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; box-shadow: 0 0 20px rgba(232,167,53,.3);
+  }
+  .ctrl-btn.play-btn:hover { background: var(--accent2); transform: scale(1.05); }
+  .ctrl-btn.active { color: var(--accent); }
+
+  /* Volume */
+  .vol-row { display: flex; align-items: center; gap: .75rem; margin-top: 1.2rem; }
+  .vol-row svg { flex-shrink: 0; color: var(--muted); }
+  input[type=range] {
+    flex: 1; height: var(--bar-h); appearance: none;
+    background: var(--border); border-radius: 9999px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    appearance: none; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--accent);
+  }
+
+  /* ── TOOLBAR ── */
+  .toolbar {
+    display: flex; align-items: center; gap: .6rem;
+    flex-wrap: wrap;
+  }
+  .toolbar input[type=text] {
+    flex: 1; min-width: 180px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: .5rem .85rem;
+    color: var(--text); font-family: 'DM Mono', monospace;
+    font-size: .78rem;
+  }
+  .toolbar input[type=text]::placeholder { color: var(--muted); }
+  .toolbar input[type=text]:focus { outline: 1px solid var(--accent); }
+  .icon-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 8px;
+    padding: .5rem .75rem; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: .75rem;
+    display: flex; align-items: center; gap: .4rem;
+    transition: all .15s; white-space: nowrap;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .icon-btn svg { flex-shrink: 0; }
+
+  /* ── PLAYLIST ── */
+  .playlist-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .playlist-header {
+    padding: .9rem 1.4rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: .72rem; color: var(--muted);
+  }
+  .playlist-body { max-height: 340px; overflow-y: auto; }
+  .playlist-body::-webkit-scrollbar { width: 4px; }
+  .playlist-body::-webkit-scrollbar-track { background: transparent; }
+  .playlist-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 9999px; }
+
+  .track-row {
+    display: flex; align-items: center; gap: 1rem;
+    padding: .75rem 1.4rem;
+    cursor: pointer; border-bottom: 1px solid var(--border);
+    transition: background .12s;
+    position: relative;
+  }
+  .track-row:last-child { border-bottom: none; }
+  .track-row:hover { background: var(--active); }
+  .track-row.active { background: var(--active); }
+  .track-row.active::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .track-num { width: 24px; font-size: .68rem; color: var(--muted); text-align: right; flex-shrink: 0; }
+  .track-row.active .track-num { color: var(--accent); }
+  .track-row-info { flex: 1; min-width: 0; }
+  .track-row-name {
+    font-size: .8rem; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-row.active .track-row-name { color: var(--accent); }
+  .track-row-size { font-size: .67rem; color: var(--muted); margin-top: .1rem; }
+
+  /* Loading / empty states */
+  .state-box {
+    padding: 3rem 1rem; text-align: center;
+    color: var(--muted); font-size: .8rem;
+    line-height: 1.8;
+  }
+  .state-box svg { opacity: .3; margin-bottom: 1rem; }
+  .spinner { width: 28px; height: 28px; margin: 0 auto 1rem; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: rotate .7s linear infinite; }
+  @keyframes rotate { to { transform: rotate(360deg); } }
+
+  /* Config gear button */
+  .gear-btn {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: .3rem; border-radius: 6px;
+    transition: color .15s;
+  }
+  .gear-btn:hover { color: var(--accent); }
+
+  /* Notifications */
+  .toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: .75rem 1.2rem;
+    font-size: .75rem; color: var(--text);
+    z-index: 200; opacity: 0; transform: translateY(8px);
+    transition: all .3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: #c0392b; color: #e74c3c; }
+</style>
+</head>
+<body>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="configModal">
+  <div class="modal">
+    <h2>⚙ Configuration Google Drive</h2>
+    <p>
+      Pour utiliser l'application, vous devez créer un projet sur
+      <a class="link" href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a>,
+      activer l'API Google Drive et créer des identifiants OAuth 2.0 (Application web).
+      Ajoutez <code>https://votre-username.github.io</code> dans les origines autorisées.
+    </p>
+    <label>Client ID OAuth 2.0</label>
+    <input type="text" id="cfgClientId" placeholder="xxxx.apps.googleusercontent.com">
+    <label>API Key (optionnelle, pour les fichiers publics)</label>
+    <input type="text" id="cfgApiKey" placeholder="AIzaSy...">
+    <label>ID du dossier Google Drive (laisser vide = tout Drive)</label>
+    <input type="text" id="cfgFolderId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms">
+    <button class="modal-btn" onclick="saveConfig()">Enregistrer</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<header>
+  <div class="logo">
+    Drive Player
+    <span>Lecteur MP3 • Google Drive</span>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center;">
+    <button class="gear-btn" onclick="openConfig()" title="Configuration">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+    </button>
+    <button class="auth-btn" id="authBtn" onclick="handleAuth()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm-.75 16.5v-4.5H6l6-8.25V9h5.25L12 16.5z"/>
+      </svg>
+      Connecter Drive
+    </button>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- PLAYER -->
+  <div class="player-card">
+    <div class="now-playing">
+      <div class="album-art" id="albumArt">
+        <div class="vinyl"></div>
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+      <div class="track-info">
+        <div class="track-title" id="trackTitle">Aucune piste sélectionnée</div>
+        <div class="track-meta" id="trackMeta">— Connectez votre Google Drive —</div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar-track" id="progressTrack" onclick="seekTo(event)">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="time-labels">
+        <span id="timeElapsed">0:00</span>
+        <span id="timeDuration">0:00</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-btn" id="shuffleBtn" onclick="toggleShuffle()" title="Aléatoire">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+          <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+          <line x1="4" y1="4" x2="9" y2="9"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn" onclick="prevTrack()" title="Précédent">
+        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn play-btn" id="playBtn" onclick="togglePlay()">
+        <svg id="playIcon" width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn" onclick="nextTrack()" title="Suivant">
+        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn" id="repeatBtn" onclick="toggleRepeat()" title="Répéter">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/>
+          <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="vol-row">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/>
+        <path d="M19.07 4.93a10 10 0 010 14.14"/>
+      </svg>
+      <input type="range" id="volSlider" min="0" max="1" step="0.01" value="0.8" oninput="setVolume(this.value)">
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="🔍  Rechercher dans la playlist…" oninput="filterTracks()">
+    <button class="icon-btn" onclick="loadFiles()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+      </svg>
+      Actualiser
+    </button>
+    <button class="icon-btn" onclick="addLocalFile()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      Fichier local
+    </button>
+  </div>
+  <input type="file" id="localFilePicker" accept=".mp3,audio/*" style="display:none" onchange="handleLocalFile(event)">
+
+  <!-- PLAYLIST -->
+  <div class="playlist-card">
+    <div class="playlist-header">
+      <span id="playlistLabel">PLAYLIST</span>
+      <span id="playlistCount">0 piste(s)</span>
+    </div>
+    <div class="playlist-body" id="playlistBody">
+      <div class="state-box">
+        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+        <div>Connectez votre Google Drive<br>ou ajoutez un fichier local</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<audio id="audioEl" preload="none"></audio>
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+let CONFIG = {
+  clientId: '',
+  apiKey:   '',
+  folderId: ''
+};
+
+function loadConfig() {
+  try { CONFIG = Object.assign(CONFIG, JSON.parse(localStorage.getItem('drivePlayerCfg') || '{}')); } catch(e) {}
+}
+function saveConfig() {
+  CONFIG.clientId = document.getElementById('cfgClientId').value.trim();
+  CONFIG.apiKey   = document.getElementById('cfgApiKey').value.trim();
+  CONFIG.folderId = document.getElementById('cfgFolderId').value.trim();
+  localStorage.setItem('drivePlayerCfg', JSON.stringify(CONFIG));
+  closeModal('configModal');
+  toast('Configuration enregistrée');
+}
+function openConfig() {
+  document.getElementById('cfgClientId').value = CONFIG.clientId;
+  document.getElementById('cfgApiKey').value   = CONFIG.apiKey;
+  document.getElementById('cfgFolderId').value = CONFIG.folderId;
+  document.getElementById('configModal').classList.add('open');
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+loadConfig();
+
+// ─── STATE ─────────────────────────────────────────────────────────────────
+let tracks = [];          // {id, name, size, blobUrl}
+let filtered = [];
+let currentIdx = -1;
+let shuffle = false;
+let repeat = false;       // 'none'|'one'|'all'  simplified: toggle bool
+let repeatMode = 'none';
+let accessToken = null;
+let gapiLoaded = false;
+
+const audio      = document.getElementById('audioEl');
+const playIcon   = document.getElementById('playIcon');
+const albumArt   = document.getElementById('albumArt');
+const progressFill = document.getElementById('progressFill');
+const timeElapsed  = document.getElementById('timeElapsed');
+const timeDuration = document.getElementById('timeDuration');
+
+// ─── AUDIO EVENTS ──────────────────────────────────────────────────────────
+audio.ontimeupdate = () => {
+  if (!audio.duration) return;
+  const pct = (audio.currentTime / audio.duration) * 100;
+  progressFill.style.width = pct + '%';
+  timeElapsed.textContent  = fmt(audio.currentTime);
+  timeDuration.textContent = fmt(audio.duration);
+};
+audio.onended = () => {
+  if (repeatMode === 'one') { audio.play(); return; }
+  if (repeatMode === 'all' || currentIdx < filtered.length - 1) nextTrack();
+  else stopPlayer();
+};
+audio.onplay  = () => { playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'; albumArt.classList.add('playing'); };
+audio.onpause = () => { playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>'; albumArt.classList.remove('playing'); };
+
+function fmt(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+function seekTo(e) {
+  const rect = document.getElementById('progressTrack').getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  if (audio.duration) audio.currentTime = pct * audio.duration;
+}
+function setVolume(v) { audio.volume = v; }
+function togglePlay() {
+  if (!audio.src) { if (filtered.length) playTrack(0); return; }
+  audio.paused ? audio.play() : audio.pause();
+}
+function stopPlayer() {
+  audio.pause();
+  progressFill.style.width = '0%';
+  timeElapsed.textContent = '0:00';
+}
+function toggleShuffle() {
+  shuffle = !shuffle;
+  document.getElementById('shuffleBtn').classList.toggle('active', shuffle);
+}
+function toggleRepeat() {
+  const modes = ['none','one','all'];
+  repeatMode = modes[(modes.indexOf(repeatMode) + 1) % 3];
+  const btn = document.getElementById('repeatBtn');
+  btn.classList.toggle('active', repeatMode !== 'none');
+  btn.title = repeatMode === 'none' ? 'Répéter' : repeatMode === 'one' ? 'Répéter 1' : 'Répéter tout';
+}
+function prevTrack() {
+  if (!filtered.length) return;
+  const idx = shuffle ? rand() : (currentIdx - 1 + filtered.length) % filtered.length;
+  playTrack(idx);
+}
+function nextTrack() {
+  if (!filtered.length) return;
+  const idx = shuffle ? rand() : (currentIdx + 1) % filtered.length;
+  playTrack(idx);
+}
+function rand() { return Math.floor(Math.random() * filtered.length); }
+
+async function playTrack(idx) {
+  const track = filtered[idx];
+  if (!track) return;
+  currentIdx = idx;
+
+  document.getElementById('trackTitle').textContent = track.name.replace(/\.mp3$/i,'');
+  document.getElementById('trackMeta').textContent  = track.size || 'Google Drive';
+
+  // Highlight row
+  document.querySelectorAll('.track-row').forEach((r,i) => r.classList.toggle('active', i === idx));
+
+  // Load audio
+  let url = track.blobUrl;
+  if (!url && track.id && accessToken) {
+    url = await fetchAsBlob(track.id);
+    track.blobUrl = url;
+  }
+  if (!url) { toast('Impossible de lire ce fichier', true); return; }
+  audio.src = url;
+  audio.play().catch(e => toast('Erreur lecture : ' + e.message, true));
+}
+
+async function fetchAsBlob(fileId) {
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    return URL.createObjectURL(blob);
+  } catch(e) {
+    toast('Erreur téléchargement : ' + e.message, true);
+    return null;
+  }
+}
+
+// ─── GOOGLE DRIVE API ──────────────────────────────────────────────────────
+function handleAuth() {
+  if (accessToken) { signOut(); return; }
+  if (!CONFIG.clientId) { openConfig(); toast('Veuillez configurer votre Client ID'); return; }
+
+  if (!gapiLoaded) {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.onload = () => { gapiLoaded = true; initTokenClient(); };
+    document.head.appendChild(s);
+  } else initTokenClient();
+}
+
+let tokenClient;
+function initTokenClient() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CONFIG.clientId,
+    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    callback: (resp) => {
+      if (resp.error) { toast('Erreur OAuth : ' + resp.error, true); return; }
+      accessToken = resp.access_token;
+      const btn = document.getElementById('authBtn');
+      btn.textContent = '✓ Drive connecté';
+      btn.classList.add('connected');
+      toast('Google Drive connecté !');
+      loadFiles();
+    }
+  });
+  tokenClient.requestAccessToken();
+}
+
+function signOut() {
+  if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+  accessToken = null;
+  const btn = document.getElementById('authBtn');
+  btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm-.75 16.5v-4.5H6l6-8.25V9h5.25L12 16.5z"/></svg> Connecter Drive';
+  btn.classList.remove('connected');
+  tracks = []; filtered = [];
+  renderPlaylist();
+  toast('Déconnecté');
+}
+
+async function loadFiles() {
+  if (!accessToken) { toast('Connectez d\'abord Google Drive'); return; }
+  showLoading();
+  try {
+    let q = "mimeType='audio/mpeg' and trashed=false";
+    if (CONFIG.folderId) q += ` and '${CONFIG.folderId}' in parents`;
+
+    const params = new URLSearchParams({ q, fields: 'files(id,name,size)', pageSize: 200, orderBy: 'name' });
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files?${params}`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    tracks = (data.files || []).map(f => ({
+      id: f.id,
+      name: f.name,
+      size: f.size ? formatBytes(+f.size) : '',
+      blobUrl: null
+    }));
+    filtered = [...tracks];
+    renderPlaylist();
+    toast(`${tracks.length} piste(s) chargée(s)`);
+  } catch(e) {
+    toast('Erreur chargement : ' + e.message, true);
+    showEmpty();
+  }
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+// ─── LOCAL FILE ────────────────────────────────────────────────────────────
+function addLocalFile() { document.getElementById('localFilePicker').click(); }
+function handleLocalFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  tracks.unshift({ id: null, name: file.name, size: formatBytes(file.size), blobUrl: url });
+  filtered = [...tracks];
+  renderPlaylist();
+  playTrack(0);
+  e.target.value = '';
+}
+
+// ─── PLAYLIST UI ──────────────────────────────────────────────────────────
+function filterTracks() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  filtered = q ? tracks.filter(t => t.name.toLowerCase().includes(q)) : [...tracks];
+  renderPlaylist();
+}
+
+function renderPlaylist() {
+  const body = document.getElementById('playlistBody');
+  document.getElementById('playlistCount').textContent = filtered.length + ' piste(s)';
+
+  if (!filtered.length) { showEmpty(); return; }
+
+  body.innerHTML = filtered.map((t,i) => `
+    <div class="track-row ${i === currentIdx ? 'active' : ''}" onclick="playTrack(${i})">
+      <span class="track-num">${String(i+1).padStart(2,'0')}</span>
+      <div class="track-row-info">
+        <div class="track-row-name">${escHtml(t.name)}</div>
+        <div class="track-row-size">${t.size || '—'} ${t.id ? '• Google Drive' : '• Local'}</div>
+      </div>
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" style="color:var(--muted)">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+    </div>
+  `).join('');
+}
+
+function showLoading() {
+  document.getElementById('playlistBody').innerHTML =
+    '<div class="state-box"><div class="spinner"></div>Chargement depuis Google Drive…</div>';
+}
+function showEmpty() {
+  document.getElementById('playlistBody').innerHTML =
+    '<div class="state-box"><svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><div>Aucune piste trouvée</div></div>';
+}
+
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── TOAST ─────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, err=false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (err ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ─── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowRight') nextTrack();
+  if (e.code === 'ArrowLeft')  prevTrack();
+});
+
+// Close modal on backdrop click
+document.getElementById('configModal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+
+// Auto-open config if not set
+window.addEventListener('load', () => {
+  if (!CONFIG.clientId) {
+    setTimeout(openConfig, 400);
+  }
+});
+</script>
+</body>
+</html>
